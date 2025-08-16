@@ -398,7 +398,7 @@
 
         async function loadNoticias() {
             try {
-                const response = await fetch('/api/admin/notas', {
+                const response = await fetch('/api/notas', {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
                 
@@ -523,34 +523,48 @@
         async function createNota(e) {
             e.preventDefault();
             
-            const formData = new FormData();
-            formData.append('titulo', document.getElementById('titulo').value);
-            formData.append('categoria', document.getElementById('categoria').value);
-            formData.append('contenido', document.getElementById('contenido').value);
-            
+            const titulo = document.getElementById('titulo').value;
+            const categoria = document.getElementById('categoria').value;
+            const contenido = document.getElementById('contenido').value;
             const imagenFile = document.getElementById('imagen').files[0];
+            
+            const formData = new FormData();
+            formData.append('titulo', titulo);
+            formData.append('categoria', categoria);
+            formData.append('contenido', contenido);
             if (imagenFile) {
                 formData.append('imagen', imagenFile);
             }
             
             try {
-                const response = await fetch('/api/admin/notas', {
+                const response = await fetch('/api/notas', {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${authToken}` },
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                        // Don't set Content-Type when using FormData, let the browser set it
+                    },
                     body: formData
                 });
                 
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showAlert('Noticia creada exitosamente', 'success');
-                    setActiveTab('noticias-btn');
-                    loadNoticias();
-                } else {
-                    showAlert(data.error || 'Error al crear la noticia', 'danger');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to create news');
                 }
+                
+                const data = await response.json();
+                showAlert('Noticia creada exitosamente', 'success');
+                setActiveTab('noticias-btn');
+                loadNoticias();
+                
+                // Reset form
+                document.getElementById('titulo').value = '';
+                document.getElementById('categoria').value = '';
+                document.getElementById('contenido').value = '';
+                document.getElementById('imagen').value = '';
+                
             } catch (error) {
-                showAlert('Error de conexión', 'danger');
+                console.error('Error creating news:', error);
+                showAlert(error.message || 'Error al crear la noticia', 'danger');
             }
         }
 
@@ -560,7 +574,7 @@
             }
             
             try {
-                const response = await fetch(`/api/admin/notas/${id}`, {
+                const response = await fetch(`/api/notas/${id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
@@ -579,7 +593,7 @@
 
         async function editNota(id) {
             try {
-                const response = await fetch('/api/admin/notas', {
+                const response = await fetch('/api/notas', {
                     headers: { 'Authorization': `Bearer ${authToken}` }
                 });
                 const notas = await response.json();
@@ -613,7 +627,7 @@
             }
             
             try {
-                const response = await fetch(`/api/admin/notas/${id}`, {
+                const response = await fetch(`/api/notas/${id}`, {
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${authToken}` },
                     body: formData
@@ -634,7 +648,7 @@
 
         async function toggleVisibility(id, visible) {
             try {
-                const response = await fetch(`/api/admin/notas/${id}/visibility`, {
+                const response = await fetch(`/api/notas/${id}/visibility`, {
                     method: 'PATCH',
                     headers: { 
                         'Authorization': `Bearer ${authToken}`,
