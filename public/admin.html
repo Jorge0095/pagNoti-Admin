@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administración - Portal de Noticias</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-red: #dc143c;
+            --dark-gray: #2c2c2c;
+            --light-gray: #f8f9fa;
+            --white: #ffffff;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: var(--light-gray);
+            color: var(--dark-gray);
+        }
+
+        .sidebar {
+            background: linear-gradient(135deg, var(--dark-gray) 0%, #3a3a3a 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+        }
+
+        .sidebar h3 {
+            color: var(--white);
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 1.5rem;
+        }
+
+        .sidebar .btn {
+            background: transparent;
+            border: 2px solid var(--primary-red);
+            color: var(--primary-red);
+            margin: 0.5rem 1rem;
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            width: calc(100% - 2rem);
+        }
+
+        .sidebar .btn:hover,
+        .sidebar .btn.active {
+            background: var(--primary-red);
+            color: var(--white);
+            transform: translateX(5px);
+        }
+
+        .main-content {
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .login-container {
+            max-width: 400px;
+            margin: 10vh auto;
+            background: var(--white);
+            padding: 3rem;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .login-header h2 {
+            color: var(--dark-gray);
+            font-weight: bold;
+        }
+
+        .login-header .icon {
+            font-size: 3rem;
+            color: var(--primary-red);
+            margin-bottom: 1rem;
+        }
+
+        .form-control {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-red);
+            box-shadow: 0 0 0 0.2rem rgba(220, 20, 60, 0.25);
+        }
+
+        .btn-primary {
+            background: var(--primary-red);
+            border: none;
+            border-radius: 10px;
+            padding: 0.8rem 2rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: #b91c3c;
+            transform: translateY(-2px);
+        }
+
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .card-header {
+            background: var(--white);
+            border-bottom: 2px solid var(--light-gray);
+            border-radius: 15px 15px 0 0 !important;
+            padding: 1.5rem;
+        }
+
+        .news-form {
+            background: var(--white);
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .news-grid .card {
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+
+        .news-grid .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+        }
+
+        .btn-sm {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            border-radius: 8px;
+        }
+
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+
+        .modal .modal-content {
+            border-radius: 15px;
+            border: none;
+        }
+
+        .modal .modal-header {
+            border-bottom: 2px solid var(--light-gray);
+            border-radius: 15px 15px 0 0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                min-height: auto;
+                padding: 1rem 0;
+            }
+            
+            .main-content {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen">
+        <div class="container">
+            <div class="login-container">
+                <div class="login-header">
+                    <div class="icon">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <h2>Panel de Administración</h2>
+                    <p class="text-muted">Ingresa tus credenciales para continuar</p>
+                </div>
+                
+                <form id="login-form">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Correo Electrónico</label>
+                        <input type="email" class="form-control" id="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Contraseña</label>
+                        <input type="password" class="form-control" id="password" required>
+                    </div>
+                    <div id="login-error" class="alert alert-danger hidden"></div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-sign-in-alt me-2"></i>
+                            Iniciar Sesión
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Panel -->
+    <div id="admin-panel" class="hidden">
+        <div class="row g-0">
+            <!-- Sidebar -->
+            <div class="col-md-3">
+                <div class="sidebar">
+                    <h3>
+                        <i class="fas fa-newspaper me-2"></i>
+                        Admin Panel
+                    </h3>
+                    <button class="btn" id="inicio-btn">
+                        <i class="fas fa-home me-2"></i>
+                        Ir al Inicio
+                    </button>
+                    <button class="btn active" id="noticias-btn">
+                        <i class="fas fa-newspaper me-2"></i>
+                        Mis Noticias
+                    </button>
+                    <button class="btn" id="crear-noticia-btn">
+                        <i class="fas fa-plus me-2"></i>
+                        Nueva Noticia
+                    </button>
+                    <button class="btn" id="salir-btn">
+                        <i class="fas fa-sign-out-alt me-2"></i>
+                        Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-9">
+                <div class="main-content">
+                    <div id="content-container">
+                        <!-- Content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Editar Noticia</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-form">
+                        <input type="hidden" id="edit-id">
+                        <div class="mb-3">
+                            <label for="edit-titulo" class="form-label">Título</label>
+                            <input type="text" class="form-control" id="edit-titulo" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-categoria" class="form-label">Categoría</label>
+                            <select class="form-control" id="edit-categoria" required>
+                                <option value="politica">Política</option>
+                                <option value="deportes">Deportes</option>
+                                <option value="tecnologia">Tecnología</option>
+                                <option value="economia">Economía</option>
+                                <option value="salud">Salud</option>
+                                <option value="entretenimiento">Entretenimiento</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-contenido" class="form-label">Contenido</label>
+                            <textarea class="form-control" id="edit-contenido" rows="10" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-imagen" class="form-label">Imagen (opcional)</label>
+                            <input type="file" class="form-control" id="edit-imagen" accept="image/*">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="updateNota()">Actualizar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentUser = null;
+        let authToken = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+            setupEventListeners();
+        });
+
+        function checkAuth() {
+            const token = localStorage.getItem('authToken');
+            const user = localStorage.getItem('currentUser');
+            
+            if (token && user) {
+                authToken = token;
+                currentUser = JSON.parse(user);
+                showAdminPanel();
+            } else {
+                showLoginScreen();
+            }
+        }
+
+        function setupEventListeners() {
+            // Login form
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+            
+            // Sidebar buttons
+            document.getElementById('inicio-btn').addEventListener('click', () => {
+                window.location.href = '/';
+            });
+            
+            document.getElementById('salir-btn').addEventListener('click', logout);
+            document.getElementById('noticias-btn').addEventListener('click', () => {
+                setActiveTab('noticias-btn');
+                loadNoticias();
+            });
+            document.getElementById('crear-noticia-btn').addEventListener('click', () => {
+                setActiveTab('crear-noticia-btn');
+                showCreateForm();
+            });
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    authToken = data.token;
+                    currentUser = data.user;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showAdminPanel();
+                } else {
+                    errorDiv.textContent = data.error || 'Error de autenticación';
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Error de conexión';
+                errorDiv.classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            authToken = null;
+            currentUser = null;
+            showLoginScreen();
+        }
+
+        function showLoginScreen() {
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('admin-panel').classList.add('hidden');
+        }
+
+        function showAdminPanel() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('admin-panel').classList.remove('hidden');
+            loadNoticias();
+        }
+
+        function setActiveTab(activeId) {
+            const buttons = document.querySelectorAll('.sidebar .btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            document.getElementById(activeId).classList.add('active');
+        }
+
+        async function loadNoticias() {
+            try {
+                const response = await fetch('/api/admin/notas', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                const notas = await response.json();
+                
+                let gridHTML = `
+                    <h2>
+                        <i class="fas fa-newspaper me-2"></i>
+                        Mis Noticias
+                    </h2>
+                    <div class="row news-grid">
+                `;
+                
+                if (notas.length === 0) {
+                    gridHTML += `
+                        <div class="col-12">
+                            <div class="text-center py-5">
+                                <i class="fas fa-newspaper" style="font-size: 4rem; color: var(--primary-red); opacity: 0.3;"></i>
+                                <h4 class="mt-3 text-muted">No tienes noticias publicadas</h4>
+                                <p class="text-muted">Haz clic en "Nueva Noticia" para crear tu primera noticia.</p>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    notas.forEach(nota => {
+                        const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjI1MCIgdmlld0JveD0iMCAwIDQwMCAyNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMjUwIiBmaWxsPSIjZjhmOWZhIi8+CjxwYXRoIGQ9Ik0xNzUgMTAwSDIyNVYxNTBIMTc1VjEwMFoiIGZpbGw9IiNkYzE0M2MiLz4KPHRleHQgeD0iMjAwIiB5PSIxMjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY2NjY2NiI+Tm90aWNpYTwvdGV4dD4KPC9zdmc+';
+                        
+                        gridHTML += `
+                            <div class="col-lg-4 col-md-6">
+                                <div class="card h-100">
+                                    ${nota.imagen ? `<img src="${nota.imagen}" class="card-img-top" style="height: 200px; object-fit: cover;" onerror="this.src='${defaultImage}'">` : `<img src="${defaultImage}" class="card-img-top" style="height: 200px; object-fit: cover;">`}
+                                    <div class="card-header d-flex justify-content-end gap-2">
+                                        <button class="btn btn-sm btn-danger" onclick="deleteNota(${nota.ID})" title="Eliminar">
+                                            <i class="fas fa-trash text-white"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-primary" onclick="editNota(${nota.ID})" title="Editar">
+                                            <i class="fas fa-edit text-white"></i>
+                                        </button>
+                                        <button class="btn btn-sm ${nota.visible ? 'btn-warning' : 'btn-success'}" 
+                                                onclick="toggleVisibility(${nota.ID}, ${nota.visible ? 0 : 1})" 
+                                                title="${nota.visible ? 'Ocultar' : 'Mostrar'}">
+                                            <i class="fas ${nota.visible ? 'fa-eye-slash' : 'fa-eye'} text-white"></i>
+                                        </button>
+                                    </div>
+                                    <div class="card-body">
+                                        <h5 class="card-title">${nota.Titulo}</h5>
+                                        <p class="card-text">${nota.Contenido.substring(0, 100)}...</p>
+                                        <div class="d-flex justify-content-between align-items-center mt-3">
+                                            <span class="badge" style="background-color: var(--primary-red);">${getCategoryName(nota.categoria)}</span>
+                                            <small class="text-muted">${formatDate(nota.FechaCreacion)}</small>
+                                        </div>
+                                        ${!nota.visible ? '<div class="mt-2"><small class="text-warning"><i class="fas fa-eye-slash me-1"></i>Oculta</small></div>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                gridHTML += `</div>`;
+                document.getElementById('content-container').innerHTML = gridHTML;
+            } catch (error) {
+                console.error('Error loading news:', error);
+                showAlert('Error al cargar las noticias', 'danger');
+            }
+        }
+
+        function showCreateForm() {
+            const formHTML = `
+                <h2>
+                    <i class="fas fa-plus me-2"></i>
+                    Nueva Noticia
+                </h2>
+                <div class="news-form">
+                    <form id="create-form">
+                        <div class="mb-3">
+                            <label for="titulo" class="form-label">Título *</label>
+                            <input type="text" class="form-control" id="titulo" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="categoria" class="form-label">Categoría *</label>
+                            <select class="form-control" id="categoria" required>
+                                <option value="">Seleccionar categoría...</option>
+                                <option value="politica">Política</option>
+                                <option value="deportes">Deportes</option>
+                                <option value="tecnologia">Tecnología</option>
+                                <option value="economia">Economía</option>
+                                <option value="salud">Salud</option>
+                                <option value="entretenimiento">Entretenimiento</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="contenido" class="form-label">Contenido *</label>
+                            <textarea class="form-control" id="contenido" rows="10" required 
+                                      placeholder="Escribe aquí el contenido completo de la noticia..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="imagen" class="form-label">Imagen (opcional)</label>
+                            <input type="file" class="form-control" id="imagen" accept="image/*">
+                            <small class="text-muted">Formatos soportados: JPG, PNG, GIF</small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>
+                                Publicar Noticia
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="loadNoticias(); setActiveTab('noticias-btn');">
+                                <i class="fas fa-times me-2"></i>
+                                Cancelar
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            
+            document.getElementById('content-container').innerHTML = formHTML;
+            
+            // Add form submit listener
+            document.getElementById('create-form').addEventListener('submit', createNota);
+        }
+
+        async function createNota(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('titulo', document.getElementById('titulo').value);
+            formData.append('categoria', document.getElementById('categoria').value);
+            formData.append('contenido', document.getElementById('contenido').value);
+            
+            const imagenFile = document.getElementById('imagen').files[0];
+            if (imagenFile) {
+                formData.append('imagen', imagenFile);
+            }
+            
+            try {
+                const response = await fetch('/api/admin/notas', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert('Noticia creada exitosamente', 'success');
+                    setActiveTab('noticias-btn');
+                    loadNoticias();
+                } else {
+                    showAlert(data.error || 'Error al crear la noticia', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error de conexión', 'danger');
+            }
+        }
+
+        async function deleteNota(id) {
+            if (!confirm('¿Estás seguro de que quieres eliminar esta noticia?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/admin/notas/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (response.ok) {
+                    showAlert('Noticia eliminada exitosamente', 'success');
+                    loadNoticias();
+                } else {
+                    const data = await response.json();
+                    showAlert(data.error || 'Error al eliminar la noticia', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error de conexión', 'danger');
+            }
+        }
+
+        async function editNota(id) {
+            try {
+                const response = await fetch('/api/admin/notas', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                const notas = await response.json();
+                const nota = notas.find(n => n.ID === id);
+                
+                if (nota) {
+                    document.getElementById('edit-id').value = nota.ID;
+                    document.getElementById('edit-titulo').value = nota.Titulo;
+                    document.getElementById('edit-categoria').value = nota.categoria;
+                    document.getElementById('edit-contenido').value = nota.Contenido;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('editModal'));
+                    modal.show();
+                }
+            } catch (error) {
+                showAlert('Error al cargar la noticia', 'danger');
+            }
+        }
+
+        async function updateNota() {
+            const id = document.getElementById('edit-id').value;
+            const formData = new FormData();
+            
+            formData.append('titulo', document.getElementById('edit-titulo').value);
+            formData.append('categoria', document.getElementById('edit-categoria').value);
+            formData.append('contenido', document.getElementById('edit-contenido').value);
+            
+            const imagenFile = document.getElementById('edit-imagen').files[0];
+            if (imagenFile) {
+                formData.append('imagen', imagenFile);
+            }
+            
+            try {
+                const response = await fetch(`/api/admin/notas/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    showAlert('Noticia actualizada exitosamente', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                    loadNoticias();
+                } else {
+                    const data = await response.json();
+                    showAlert(data.error || 'Error al actualizar la noticia', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error de conexión', 'danger');
+            }
+        }
+
+        async function toggleVisibility(id, visible) {
+            try {
+                const response = await fetch(`/api/admin/notas/${id}/visibility`, {
+                    method: 'PATCH',
+                    headers: { 
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ visible })
+                });
+                
+                if (response.ok) {
+                    const action = visible ? 'mostrada' : 'ocultada';
+                    showAlert(`Noticia ${action} exitosamente`, 'success');
+                    loadNoticias();
+                } else {
+                    const data = await response.json();
+                    showAlert(data.error || 'Error al cambiar la visibilidad', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error de conexión', 'danger');
+            }
+        }
+
+        function getCategoryName(category) {
+            const categories = {
+                'politica': 'Política',
+                'deportes': 'Deportes',
+                'tecnologia': 'Tecnología',
+                'economia': 'Economía',
+                'salud': 'Salud',
+                'entretenimiento': 'Entretenimiento'
+            };
+            return categories[category] || category;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('es-ES', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function showAlert(message, type) {
+            const alertHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            const container = document.getElementById('content-container');
+            container.insertAdjacentHTML('afterbegin', alertHTML);
+            
+            setTimeout(() => {
+                const alert = container.querySelector('.alert');
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
