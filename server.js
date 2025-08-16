@@ -8,7 +8,7 @@ const fs = require('fs').promises;
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(express.json());
@@ -19,7 +19,7 @@ app.use(express.static('public'));
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'Yorch0711!',
+  password: process.env.DB_PASSWORD || 'KevFu20ta',
   database: process.env.DB_NAME || 'news_db',
   waitForConnections: true,
   connectionLimit: 10,
