@@ -8,7 +8,7 @@ const fs = require('fs').promises;
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.ADMIN_PORT || 4000;
 
 // Middleware
 app.use(express.json());
@@ -30,15 +30,38 @@ const pool = mysql.createPool(dbConfig);
 
 // File upload configuration
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'public/uploads/');
+  destination: async (req, file, cb) => {
+    const uploadDir = 'public/uploads/';
+    try {
+      await fs.mkdir(uploadDir, { recursive: true });
+      cb(null, uploadDir);
+    } catch (err) {
+      cb(err);
+    }
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const filetypes = /jpeg|jpg|png|gif/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    
+    if (extname && mimetype) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only images are allowed (jpeg, jpg, png, gif)'));
+    }
+  }
+});
 
 // JWT middleware
 const authenticateToken = (req, res, next) => {
@@ -46,22 +69,23 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.sendStatus(401);
+    return res.status(401).json({ error: 'Unauthorized - No token provided' });
   }
 
   jwt.verify(token, process.env.JWT_SECRET || 'cisco123', (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      return res.status(403).json({ error: 'Forbidden - Invalid token' });
+    }
     req.user = user;
     next();
   });
 };
 
-// Initialize database tables - ESTA FUNCIÓN FALTABA
+// Initialize database tables
 async function initDatabase() {
   try {
     console.log('Initializing database...');
     
-    // Crear tabla usuarios
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS usuarios (
         ID INT AUTO_INCREMENT PRIMARY KEY,
@@ -73,7 +97,6 @@ async function initDatabase() {
       )
     `);
 
-    // Crear tabla notas
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS notas (
         ID INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,7 +112,6 @@ async function initDatabase() {
       )
     `);
 
-    // Crear usuario admin por defecto si no existe
     const [existingAdmin] = await pool.execute('SELECT * FROM usuarios WHERE email = ?', ['admin@news.com']);
     if (existingAdmin.length === 0) {
       const hashedPassword = await bcrypt.hash('admin123', 10);
@@ -100,17 +122,10 @@ async function initDatabase() {
       console.log('Default admin user created');
     }
 
-    // Crear directorio de uploads si no existe
-    try {
-      await fs.access('public/uploads');
-    } catch (error) {
-      await fs.mkdir('public/uploads', { recursive: true });
-      console.log('Created uploads directory');
-    }
-
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
+    process.exit(1);
   }
 }
 
@@ -139,7 +154,7 @@ app.post('/api/login', async (req, res) => {
     
     const token = jwt.sign(
       { id: user.ID, email: user.email, rol: user.rol },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET || 'cisco123',
       { expiresIn: '24h' }
     );
     
@@ -158,11 +173,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-app.post('/api/logout', (req, res) => {
-  res.json({ message: 'Logged out successfully' });
-});
-
-// Protected admin routes
+// News routes (using /api/ prefix as requested)
 app.get('/api/notas', authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -171,7 +182,7 @@ app.get('/api/notas', authenticateToken, async (req, res) => {
     );
     res.json(rows);
   } catch (error) {
-    console.error('Error fetching admin news:', error);
+    console.error('Error fetching news:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -179,6 +190,14 @@ app.get('/api/notas', authenticateToken, async (req, res) => {
 app.post('/api/notas', authenticateToken, upload.single('imagen'), async (req, res) => {
   try {
     const { titulo, contenido, categoria } = req.body;
+    
+    if (!titulo || !contenido || !categoria) {
+      if (req.file) {
+        await fs.unlink(req.file.path);
+      }
+      return res.status(400).json({ error: 'Title, content, and category are required' });
+    }
+
     const imagen = req.file ? `/uploads/${req.file.filename}` : null;
     
     const [result] = await pool.execute(
@@ -186,9 +205,23 @@ app.post('/api/notas', authenticateToken, upload.single('imagen'), async (req, r
       [titulo, contenido, categoria, imagen, req.user.id]
     );
     
-    res.json({ id: result.insertId, message: 'News created successfully' });
+    res.status(201).json({ 
+      id: result.insertId, 
+      message: 'News created successfully',
+      nota: {
+        ID: result.insertId,
+        Titulo: titulo,
+        Contenido: contenido,
+        categoria: categoria,
+        imagen: imagen,
+        autorID: req.user.id
+      }
+    });
   } catch (error) {
     console.error('Error creating news:', error);
+    if (req.file) {
+      await fs.unlink(req.file.path);
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -196,34 +229,80 @@ app.post('/api/notas', authenticateToken, upload.single('imagen'), async (req, r
 app.put('/api/notas/:id', authenticateToken, upload.single('imagen'), async (req, res) => {
   try {
     const { titulo, contenido, categoria } = req.body;
-    const imagen = req.file ? `/uploads/${req.file.filename}` : undefined;
     
-    let query = 'UPDATE notas SET Titulo = ?, Contenido = ?, categoria = ?';
-    let params = [titulo, contenido, categoria];
+    if (!titulo || !contenido || !categoria) {
+      if (req.file) {
+        await fs.unlink(req.file.path);
+      }
+      return res.status(400).json({ error: 'Title, content, and category are required' });
+    }
+
+    const [currentNote] = await pool.execute(
+      'SELECT imagen FROM notas WHERE ID = ? AND autorID = ?',
+      [req.params.id, req.user.id]
+    );
     
-    if (imagen) {
-      query += ', imagen = ?';
-      params.push(imagen);
+    if (currentNote.length === 0) {
+      if (req.file) {
+        await fs.unlink(req.file.path);
+      }
+      return res.status(404).json({ error: 'News article not found or unauthorized' });
+    }
+
+    let imagen = currentNote[0].imagen;
+    let oldImagePath = null;
+    
+    if (req.file) {
+      oldImagePath = imagen ? path.join('public', imagen) : null;
+      imagen = `/uploads/${req.file.filename}`;
     }
     
-    query += ' WHERE ID = ? AND autorID = ?';
-    params.push(req.params.id, req.user.id);
-    
-    const [result] = await pool.execute(query, params);
+    const [result] = await pool.execute(
+      'UPDATE notas SET Titulo = ?, Contenido = ?, categoria = ?, imagen = ? WHERE ID = ? AND autorID = ?',
+      [titulo, contenido, categoria, imagen, req.params.id, req.user.id]
+    );
     
     if (result.affectedRows === 0) {
+      if (req.file) {
+        await fs.unlink(req.file.path);
+      }
       return res.status(404).json({ error: 'News article not found or unauthorized' });
     }
     
-    res.json({ message: 'News updated successfully' });
+    if (oldImagePath) {
+      await fs.unlink(oldImagePath);
+    }
+    
+    res.json({ 
+      message: 'News updated successfully',
+      nota: {
+        ID: req.params.id,
+        Titulo: titulo,
+        Contenido: contenido,
+        categoria: categoria,
+        imagen: imagen
+      }
+    });
   } catch (error) {
     console.error('Error updating news:', error);
+    if (req.file) {
+      await fs.unlink(req.file.path);
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 app.delete('/api/notas/:id', authenticateToken, async (req, res) => {
   try {
+    const [note] = await pool.execute(
+      'SELECT imagen FROM notas WHERE ID = ? AND autorID = ?',
+      [req.params.id, req.user.id]
+    );
+    
+    if (note.length === 0) {
+      return res.status(404).json({ error: 'News article not found or unauthorized' });
+    }
+
     const [result] = await pool.execute(
       'DELETE FROM notas WHERE ID = ? AND autorID = ?',
       [req.params.id, req.user.id]
@@ -231,6 +310,10 @@ app.delete('/api/notas/:id', authenticateToken, async (req, res) => {
     
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'News article not found or unauthorized' });
+    }
+    
+    if (note[0].imagen) {
+      await fs.unlink(path.join('public', note[0].imagen));
     }
     
     res.json({ message: 'News deleted successfully' });
@@ -244,6 +327,10 @@ app.patch('/api/notas/:id/visibility', authenticateToken, async (req, res) => {
   try {
     const { visible } = req.body;
     
+    if (typeof visible !== 'boolean') {
+      return res.status(400).json({ error: 'Visibility must be a boolean value' });
+    }
+
     const [result] = await pool.execute(
       'UPDATE notas SET visible = ? WHERE ID = ? AND autorID = ?',
       [visible, req.params.id, req.user.id]
@@ -253,20 +340,32 @@ app.patch('/api/notas/:id/visibility', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'News article not found or unauthorized' });
     }
     
-    res.json({ message: 'Visibility updated successfully' });
+    res.json({ 
+      message: 'Visibility updated successfully',
+      visible: visible
+    });
   } catch (error) {
     console.error('Error updating visibility:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // Initialize database and start server
 initDatabase().then(() => {
   app.listen(PORT, () => {
-    console.log(`Admin Server running on port ${PORT}`);
-    console.log(`Admin panel available at: http://localhost:${PORT}/admin`);
-    console.log(`Default admin: admin@news.com / admin123`);
+    console.log(`\nAdmin Server running on port ${PORT}`);
+    console.log(`Admin panel available at: http://localhost:${PORT}`);
+    console.log(`Default admin credentials: admin@news.com / admin123\n`);
   });
-}).catch(console.error);
+}).catch(err => {
+  console.error('Failed to initialize server:', err);
+  process.exit(1);
+});
 
 module.exports = app;
