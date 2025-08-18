@@ -426,10 +426,13 @@
                     notas.forEach(nota => {
                         const defaultImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjI1MCIgdmlld0JveD0iMCAwIDQwMCAyNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMjUwIiBmaWxsPSIjZjhmOWZhIi8+CjxwYXRoIGQ9Ik0xNzUgMTAwSDIyNVYxNTBIMTc1VjEwMFoiIGZpbGw9IiNkYzE0M2MiLz4KPHRleHQgeD0iMjAwIiB5PSIxMjUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY2NjY2NiI+Tm90aWNpYTwvdGV4dD4KPC9zdmc+';
                         
+                        // Use the image from the note if available, otherwise use default
+                        const imageUrl = nota.imagen || defaultImage;
+                        
                         gridHTML += `
                             <div class="col-lg-4 col-md-6">
                                 <div class="card h-100">
-                                    ${nota.imagen ? `<img src="${nota.imagen}" class="card-img-top" style="height: 200px; object-fit: cover;" onerror="this.src='${defaultImage}'">` : `<img src="${defaultImage}" class="card-img-top" style="height: 200px; object-fit: cover;">`}
+                                    <img src="${imageUrl}" class="card-img-top" style="height: 200px; object-fit: cover;" onerror="this.src='${defaultImage}'">
                                     <div class="card-header d-flex justify-content-end gap-2">
                                         <button class="btn btn-sm btn-danger" onclick="deleteNota(${nota.ID})" title="Eliminar">
                                             <i class="fas fa-trash text-white"></i>
@@ -465,6 +468,7 @@
                 showAlert('Error al cargar las noticias', 'danger');
             }
         }
+
 
         function showCreateForm() {
             const formHTML = `
@@ -520,51 +524,72 @@
             document.getElementById('create-form').addEventListener('submit', createNota);
         }
 
+        async function compressImage(file, maxWidth = 800, quality = 0.7) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const scale = Math.min(maxWidth / img.width, 1);
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const base64 = canvas.toDataURL(file.type, quality);
+                    resolve({
+                    data: base64.split(',')[1], // Remove data:image/... prefix
+                    mimeType: file.type,
+                    name: file.name
+                    });
+                };
+                img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
         async function createNota(e) {
             e.preventDefault();
             
             const titulo = document.getElementById('titulo').value;
             const categoria = document.getElementById('categoria').value;
             const contenido = document.getElementById('contenido').value;
-            const imagenFile = document.getElementById('imagen').files[0];
-            
-            const formData = new FormData();
-            formData.append('titulo', titulo);
-            formData.append('categoria', categoria);
-            formData.append('contenido', contenido);
-            if (imagenFile) {
-                formData.append('imagen', imagenFile);
-            }
+            const imageFiles = Array.from(document.getElementById('imagen').files);
             
             try {
+                // Compress and convert images
+                const imagenes = await Promise.all(
+                    imageFiles.slice(0, 5).map(file => compressImage(file))
+                );
+                
                 const response = await fetch('/api/notas', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${authToken}`
-                        // Don't set Content-Type when using FormData, let the browser set it
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
                     },
-                    body: formData
+                    body: JSON.stringify({ titulo, categoria, contenido, imagenes })
                 });
                 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to create news');
+                if (response.ok) {
+                    showAlert('Noticia creada exitosamente', 'success');
+                    // Reset form
+                    document.getElementById('create-form').reset();
+                    // Optionally redirect to news list
+                    setTimeout(() => {
+                        setActiveTab('noticias-btn');
+                        loadNoticias();
+                    }, 1500);
+                } else {
+                    const data = await response.json();
+                    showAlert(data.error || 'Error al crear la noticia', 'danger');
                 }
-                
-                const data = await response.json();
-                showAlert('Noticia creada exitosamente', 'success');
-                setActiveTab('noticias-btn');
-                loadNoticias();
-                
-                // Reset form
-                document.getElementById('titulo').value = '';
-                document.getElementById('categoria').value = '';
-                document.getElementById('contenido').value = '';
-                document.getElementById('imagen').value = '';
-                
             } catch (error) {
                 console.error('Error creating news:', error);
-                showAlert(error.message || 'Error al crear la noticia', 'danger');
+                showAlert('Error de conexión', 'danger');
             }
         }
 
@@ -615,22 +640,32 @@
 
         async function updateNota() {
             const id = document.getElementById('edit-id').value;
-            const formData = new FormData();
-            
-            formData.append('titulo', document.getElementById('edit-titulo').value);
-            formData.append('categoria', document.getElementById('edit-categoria').value);
-            formData.append('contenido', document.getElementById('edit-contenido').value);
-            
-            const imagenFile = document.getElementById('edit-imagen').files[0];
-            if (imagenFile) {
-                formData.append('imagen', imagenFile);
-            }
+            const titulo = document.getElementById('edit-titulo').value;
+            const categoria = document.getElementById('edit-categoria').value;
+            const contenido = document.getElementById('edit-contenido').value;
+            const imageFile = document.getElementById('edit-imagen').files[0];
             
             try {
+                let imagenes = [];
+                
+                // If there's a new image, compress and convert it
+                if (imageFile) {
+                    const compressedImage = await compressImage(imageFile);
+                    imagenes = [compressedImage];
+                }
+                
                 const response = await fetch(`/api/notas/${id}`, {
                     method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${authToken}` },
-                    body: formData
+                    headers: { 
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        titulo, 
+                        categoria, 
+                        contenido, 
+                        imagenes // This will replace existing images or be empty to keep current ones
+                    })
                 });
                 
                 if (response.ok) {
@@ -642,23 +677,27 @@
                     showAlert(data.error || 'Error al actualizar la noticia', 'danger');
                 }
             } catch (error) {
+                console.error('Update error:', error);
                 showAlert('Error de conexión', 'danger');
             }
         }
 
         async function toggleVisibility(id, visible) {
             try {
+                // Convert to boolean - this was the issue!
+                const isVisible = Boolean(visible);
+                
                 const response = await fetch(`/api/notas/${id}/visibility`, {
                     method: 'PATCH',
                     headers: { 
                         'Authorization': `Bearer ${authToken}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ visible })
+                    body: JSON.stringify({ visible: isVisible })
                 });
                 
                 if (response.ok) {
-                    const action = visible ? 'mostrada' : 'ocultada';
+                    const action = isVisible ? 'mostrada' : 'ocultada';
                     showAlert(`Noticia ${action} exitosamente`, 'success');
                     loadNoticias();
                 } else {
@@ -666,10 +705,10 @@
                     showAlert(data.error || 'Error al cambiar la visibilidad', 'danger');
                 }
             } catch (error) {
+                console.error('Toggle visibility error:', error);
                 showAlert('Error de conexión', 'danger');
             }
         }
-
         function getCategoryName(category) {
             const categories = {
                 'politica': 'Política',

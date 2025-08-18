@@ -2,17 +2,15 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const multer = require('multer');
 const path = require('path');
-const fs = require('fs').promises;
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.ADMIN_PORT || 4000;
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' })); // Increased limit for image uploads
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 
 // Database connection
@@ -27,41 +25,6 @@ const dbConfig = {
 };
 
 const pool = mysql.createPool(dbConfig);
-
-// File upload configuration
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = 'public/uploads/';
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (err) {
-      cb(err);
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
-    
-    if (extname && mimetype) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only images are allowed (jpeg, jpg, png, gif)'));
-    }
-  }
-});
 
 // JWT middleware
 const authenticateToken = (req, res, next) => {
@@ -103,12 +66,22 @@ async function initDatabase() {
         Titulo VARCHAR(255) NOT NULL,
         Contenido TEXT NOT NULL,
         categoria ENUM('politica', 'deportes', 'tecnologia', 'economia', 'salud', 'entretenimiento') NOT NULL,
-        imagen VARCHAR(255),
         visible BOOLEAN DEFAULT TRUE,
         autorID INT,
         FechaCreacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         fechaActualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (autorID) REFERENCES usuarios(ID)
+      )
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS nota_imagenes (
+        ID INT AUTO_INCREMENT PRIMARY KEY,
+        notaID INT NOT NULL,
+        imagen LONGBLOB NOT NULL,
+        mime_type VARCHAR(50) NOT NULL,
+        orden INT DEFAULT 0,
+        FOREIGN KEY (notaID) REFERENCES notas(ID) ON DELETE CASCADE
       )
     `);
 
@@ -173,136 +146,176 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// News routes (using /api/ prefix as requested)
+// News routes
 app.get('/api/notas', authenticateToken, async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      'SELECT * FROM notas WHERE autorID = ? ORDER BY FechaCreacion DESC',
-      [req.user.id]
-    );
-    res.json(rows);
+    const [rows] = await pool.execute(`
+      SELECT 
+        n.*,
+        ni.imagen as primera_imagen,
+        ni.mime_type as imagen_mime_type,
+        CASE WHEN ni.imagen IS NOT NULL THEN 1 ELSE 0 END as hasImages
+      FROM notas n 
+      LEFT JOIN (
+        SELECT DISTINCT 
+          notaID, 
+          FIRST_VALUE(imagen) OVER (PARTITION BY notaID ORDER BY orden, ID) as imagen,
+          FIRST_VALUE(mime_type) OVER (PARTITION BY notaID ORDER BY orden, ID) as mime_type
+        FROM nota_imagenes
+      ) ni ON n.ID = ni.notaID
+      WHERE n.autorID = ? 
+      GROUP BY n.ID, ni.imagen, ni.mime_type
+      ORDER BY n.FechaCreacion DESC
+    `, [req.user.id]);
+    
+    // Convert the result to include image information
+    const notes = rows.map(row => {
+      const note = { ...row };
+      
+      // Add image data if available
+      if (note.primera_imagen) {
+        note.imagen = `data:${note.imagen_mime_type};base64,${note.primera_imagen.toString('base64')}`;
+      }
+      
+      // Clean up the response
+      delete note.primera_imagen;
+      delete note.imagen_mime_type;
+      
+      return note;
+    });
+    
+    res.json(notes);
   } catch (error) {
     console.error('Error fetching news:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.post('/api/notas', authenticateToken, upload.single('imagen'), async (req, res) => {
+app.post('/api/notas', authenticateToken, async (req, res) => {
   try {
-    const { titulo, contenido, categoria } = req.body;
+    const { titulo, contenido, categoria, imagenes } = req.body;
     
     if (!titulo || !contenido || !categoria) {
-      if (req.file) {
-        await fs.unlink(req.file.path);
-      }
       return res.status(400).json({ error: 'Title, content, and category are required' });
     }
 
-    const imagen = req.file ? `/uploads/${req.file.filename}` : null;
-    
-    const [result] = await pool.execute(
-      'INSERT INTO notas (Titulo, Contenido, categoria, imagen, autorID) VALUES (?, ?, ?, ?, ?)',
-      [titulo, contenido, categoria, imagen, req.user.id]
-    );
-    
-    res.status(201).json({ 
-      id: result.insertId, 
-      message: 'News created successfully',
-      nota: {
-        ID: result.insertId,
-        Titulo: titulo,
-        Contenido: contenido,
-        categoria: categoria,
-        imagen: imagen,
-        autorID: req.user.id
+    // Start transaction
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // First create the note
+      const [result] = await connection.execute(
+        'INSERT INTO notas (Titulo, Contenido, categoria, autorID) VALUES (?, ?, ?, ?)',
+        [titulo, contenido, categoria, req.user.id]
+      );
+      
+      // Then handle images if any
+      if (imagenes && imagenes.length > 0) {
+        for (const img of imagenes.slice(0, 5)) { // Limit to 5 images
+          await connection.execute(
+            'INSERT INTO nota_imagenes (notaID, imagen, mime_type, orden) VALUES (?, ?, ?, ?)',
+            [result.insertId, Buffer.from(img.data, 'base64'), img.mimeType, img.orden || 0]
+          );
+        }
       }
-    });
+      
+      // Commit transaction
+      await connection.commit();
+      
+      // Get the full created note with images
+      const [newNote] = await pool.execute(
+        'SELECT * FROM notas WHERE ID = ?',
+        [result.insertId]
+      );
+      
+      res.status(201).json({ 
+        id: result.insertId,
+        message: 'News created successfully',
+        nota: newNote[0]
+      });
+    } catch (error) {
+      // Rollback transaction on error
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error('Error creating news:', error);
-    if (req.file) {
-      await fs.unlink(req.file.path);
-    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.put('/api/notas/:id', authenticateToken, upload.single('imagen'), async (req, res) => {
+app.put('/api/notas/:id', authenticateToken, async (req, res) => {
   try {
-    const { titulo, contenido, categoria } = req.body;
+    const { titulo, contenido, categoria, imagenes } = req.body;
     
     if (!titulo || !contenido || !categoria) {
-      if (req.file) {
-        await fs.unlink(req.file.path);
-      }
       return res.status(400).json({ error: 'Title, content, and category are required' });
     }
 
-    const [currentNote] = await pool.execute(
-      'SELECT imagen FROM notas WHERE ID = ? AND autorID = ?',
-      [req.params.id, req.user.id]
-    );
-    
-    if (currentNote.length === 0) {
-      if (req.file) {
-        await fs.unlink(req.file.path);
-      }
-      return res.status(404).json({ error: 'News article not found or unauthorized' });
-    }
+    // Start transaction
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    let imagen = currentNote[0].imagen;
-    let oldImagePath = null;
-    
-    if (req.file) {
-      oldImagePath = imagen ? path.join('public', imagen) : null;
-      imagen = `/uploads/${req.file.filename}`;
-    }
-    
-    const [result] = await pool.execute(
-      'UPDATE notas SET Titulo = ?, Contenido = ?, categoria = ?, imagen = ? WHERE ID = ? AND autorID = ?',
-      [titulo, contenido, categoria, imagen, req.params.id, req.user.id]
-    );
-    
-    if (result.affectedRows === 0) {
-      if (req.file) {
-        await fs.unlink(req.file.path);
+    try {
+      // First update the note
+      const [result] = await connection.execute(
+        'UPDATE notas SET Titulo = ?, Contenido = ?, categoria = ? WHERE ID = ? AND autorID = ?',
+        [titulo, contenido, categoria, req.params.id, req.user.id]
+      );
+      
+      if (result.affectedRows === 0) {
+        await connection.rollback();
+        return res.status(404).json({ error: 'News article not found or unauthorized' });
       }
-      return res.status(404).json({ error: 'News article not found or unauthorized' });
-    }
-    
-    if (oldImagePath) {
-      await fs.unlink(oldImagePath);
-    }
-    
-    res.json({ 
-      message: 'News updated successfully',
-      nota: {
-        ID: req.params.id,
-        Titulo: titulo,
-        Contenido: contenido,
-        categoria: categoria,
-        imagen: imagen
+      
+      // Handle images if any
+      if (imagenes && imagenes.length > 0) {
+        // First delete existing images for this note
+        await connection.execute(
+          'DELETE FROM nota_imagenes WHERE notaID = ?',
+          [req.params.id]
+        );
+        
+        // Then add new images
+        for (const img of imagenes.slice(0, 5)) {
+          await connection.execute(
+            'INSERT INTO nota_imagenes (notaID, imagen, mime_type, orden) VALUES (?, ?, ?, ?)',
+            [req.params.id, Buffer.from(img.data, 'base64'), img.mimeType, img.orden || 0]
+          );
+        }
       }
-    });
+      
+      // Commit transaction
+      await connection.commit();
+      
+      res.json({ 
+        message: 'News updated successfully',
+        nota: {
+          ID: req.params.id,
+          Titulo: titulo,
+          Contenido: contenido,
+          categoria: categoria
+        }
+      });
+    } catch (error) {
+      // Rollback transaction on error
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error('Error updating news:', error);
-    if (req.file) {
-      await fs.unlink(req.file.path);
-    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 app.delete('/api/notas/:id', authenticateToken, async (req, res) => {
   try {
-    const [note] = await pool.execute(
-      'SELECT imagen FROM notas WHERE ID = ? AND autorID = ?',
-      [req.params.id, req.user.id]
-    );
-    
-    if (note.length === 0) {
-      return res.status(404).json({ error: 'News article not found or unauthorized' });
-    }
-
+    // MySQL foreign key with ON DELETE CASCADE will handle image deletion automatically
     const [result] = await pool.execute(
       'DELETE FROM notas WHERE ID = ? AND autorID = ?',
       [req.params.id, req.user.id]
@@ -310,10 +323,6 @@ app.delete('/api/notas/:id', authenticateToken, async (req, res) => {
     
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'News article not found or unauthorized' });
-    }
-    
-    if (note[0].imagen) {
-      await fs.unlink(path.join('public', note[0].imagen));
     }
     
     res.json({ message: 'News deleted successfully' });
@@ -346,6 +355,34 @@ app.patch('/api/notas/:id/visibility', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating visibility:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get images for a note
+app.get('/api/notas/:id/imagenes', authenticateToken, async (req, res) => {
+  try {
+    // First verify the user owns this note or has permission to view it
+    const [noteCheck] = await pool.execute(
+      'SELECT autorID FROM notas WHERE ID = ?',
+      [req.params.id]
+    );
+    
+    if (noteCheck.length === 0 || noteCheck[0].autorID !== req.user.id) {
+      return res.status(404).json({ error: 'Note not found or unauthorized' });
+    }
+    
+    const [rows] = await pool.execute(
+      'SELECT imagen, mime_type FROM nota_imagenes WHERE notaID = ? ORDER BY orden, ID',
+      [req.params.id]
+    );
+    
+    res.json(rows.map(row => ({
+      data: row.imagen.toString('base64'),
+      mimeType: row.mime_type
+    })));
+  } catch (error) {
+    console.error('Error fetching images:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
